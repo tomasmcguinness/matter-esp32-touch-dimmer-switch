@@ -15,7 +15,8 @@
 
 #include <esp_matter.h>
 #include <esp_matter_console.h>
-#include "bsp/esp-bsp.h"
+
+#include <iot_button.h>
 
 #include <app_priv.h>
 #include <app_reset.h>
@@ -211,9 +212,13 @@ void app_driver_client_invoke_command_callback(client::peer_device_t *peer_devic
     {
         strcpy(command_data_str, "{}");
     }
+    // else if (req_handle->command_path.mClusterId == LevelControl::Id)
+    // {
+    //     strcpy(command_data_str, "{\"0:U8\": 128, \"1:U16\": 0, \"2:U8\": 0, \"3:U8\": 0}");
+    // }
     else if (req_handle->command_path.mClusterId == LevelControl::Id)
     {
-        strcpy(command_data_str, "{\"0:U8\": 128, \"1:U16\": 0, \"2:U8\": 0, \"3:U8\": 0}");
+        strcpy(command_data_str, "{\"0:U8\": 0, \"1:U8\": 12, \"2:U16\": 0, \"3:U8\": 0, \"4:U8\": 0}");
     }
     else if (req_handle->command_path.mClusterId == Identify::Id)
     {
@@ -239,14 +244,6 @@ void app_driver_client_invoke_command_callback(client::peer_device_t *peer_devic
         return;
     }
 
-    // client::interaction::invoke::send_request(NULL,
-    //                                           peer_device,
-    //                                           req_handle->command_path,
-    //                                           (LevelControl::Commands::MoveToLevel::Type *)req_handle->request_data,
-    //                                           send_command_success_callback,
-    //                                           send_command_failure_callback,
-    //                                           chip::NullOptional);
-
     client::interaction::invoke::send_request(NULL,
                                               peer_device,
                                               req_handle->command_path,
@@ -256,8 +253,7 @@ void app_driver_client_invoke_command_callback(client::peer_device_t *peer_devic
                                               chip::NullOptional);
 }
 
-void app_driver_client_group_invoke_command_callback(uint8_t fabric_index, client::request_handle_t *req_handle,
-                                                     void *priv_data)
+void app_driver_client_group_invoke_command_callback(uint8_t fabric_index, client::request_handle_t *req_handle, void *priv_data)
 {
     if (req_handle->type != esp_matter::client::INVOKE_CMD)
     {
@@ -302,7 +298,7 @@ void app_driver_client_group_invoke_command_callback(uint8_t fabric_index, clien
 
 static void app_driver_button_toggle_cb(void *arg, void *data)
 {
-    if (iot_button_get_ticks_time((button_handle_t)arg) < 5000)
+    if (iot_button_get_ticks_time((button_handle_t)arg) < 1000)
     {
         ESP_LOGI(TAG, "Single Click");
         client::request_handle_t req_handle;
@@ -325,17 +321,24 @@ static void app_driver_button_dimming_cb(void *arg, void *data)
 {
     ESP_LOGI(TAG, "Long Press Hold");
 
-    LevelControl::Commands::MoveToLevel::Type moveToLevelCommand;
-    moveToLevelCommand.level = 55;
-    moveToLevelCommand.transitionTime.SetNonNull(0);
-    moveToLevelCommand.optionsMask = static_cast<chip::BitMask<chip::app::Clusters::LevelControl::LevelControlOptions>>(0U);
-    moveToLevelCommand.optionsOverride = static_cast<chip::BitMask<chip::app::Clusters::LevelControl::LevelControlOptions>>(0U);
+    uint16_t hold_count = iot_button_get_long_press_hold_cnt((button_handle_t)arg);
+    uint32_t hold_time = iot_button_get_ticks_time((button_handle_t)arg);
+
+    ESP_LOGI(TAG, "Long Press Hold Count: %d", hold_count);
+    ESP_LOGI(TAG, "Long Press Hold Time: %ld", hold_time);
+
+    LevelControl::Commands::Step::Type stepCommand;
+    stepCommand.stepMode = LevelControl::StepModeEnum::kUp;
+    stepCommand.stepSize = 3;
+    stepCommand.transitionTime.SetNonNull(0);
+    stepCommand.optionsMask = static_cast<chip::BitMask<chip::app::Clusters::LevelControl::LevelControlOptions>>(0U);
+    stepCommand.optionsOverride = static_cast<chip::BitMask<chip::app::Clusters::LevelControl::LevelControlOptions>>(0U);
 
     client::request_handle_t req_handle;
     req_handle.type = esp_matter::client::INVOKE_CMD;
     req_handle.command_path.mClusterId = LevelControl::Id;
-    req_handle.command_path.mCommandId = LevelControl::Commands::MoveToLevel::Id;
-    req_handle.request_data = &moveToLevelCommand;
+    req_handle.command_path.mCommandId = LevelControl::Commands::Step::Id;
+    req_handle.request_data = &stepCommand;
 
     lock::chip_stack_lock(portMAX_DELAY);
     client::cluster_update(switch_endpoint_id, &req_handle);
@@ -346,10 +349,24 @@ app_driver_handle_t app_driver_switch_init()
 {
     /* Initialize button */
 
-    button_handle_t btns[BSP_BUTTON_NUM];
-    ESP_ERROR_CHECK(bsp_iot_button_create(btns, NULL, BSP_BUTTON_NUM));
-    ESP_ERROR_CHECK(iot_button_register_cb(btns[0], BUTTON_PRESS_UP, app_driver_button_toggle_cb, NULL));
-    ESP_ERROR_CHECK(iot_button_register_cb(btns[0], BUTTON_LONG_PRESS_HOLD, app_driver_button_dimming_cb, NULL));
+    // button_event_args_t args = {
+    //     .long_press.press_time = 2000,
+    // };
+
+    button_config_t config;
+    memset(&config, 0, sizeof(button_config_t));
+
+    config.type = BUTTON_TYPE_GPIO;
+    config.gpio_button_config.gpio_num = GPIO_NUM_9;
+    config.gpio_button_config.active_level = 0;
+
+    button_handle_t handle = iot_button_create(&config);
+
+    ESP_ERROR_CHECK(iot_button_register_cb(handle, BUTTON_PRESS_UP, app_driver_button_toggle_cb, NULL));
+    ESP_ERROR_CHECK(iot_button_register_cb(handle, BUTTON_LONG_PRESS_HOLD, app_driver_button_dimming_cb, NULL));
+
+    // To enable powersafe, a setting must be set via menuconfig
+    //config.gpio_button_config.enable_power_save = true;
 
     /* Other initializations */
 #if CONFIG_ENABLE_CHIP_SHELL
@@ -358,5 +375,5 @@ app_driver_handle_t app_driver_switch_init()
     client::set_request_callback(app_driver_client_invoke_command_callback,
                                  app_driver_client_group_invoke_command_callback, NULL);
 
-    return (app_driver_handle_t)btns[0];
+    return (app_driver_handle_t)handle;
 }

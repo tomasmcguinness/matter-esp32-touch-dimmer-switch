@@ -199,6 +199,8 @@ static void send_command_failure_callback(void *context, CHIP_ERROR error)
     ESP_LOGI(TAG, "Send command failure: err :%" CHIP_ERROR_FORMAT, error.Format());
 }
 
+LevelControl::StepModeEnum current_step_direction = LevelControl::StepModeEnum::kUp;
+
 void app_driver_client_invoke_command_callback(client::peer_device_t *peer_device, client::request_handle_t *req_handle,
                                                void *priv_data)
 {
@@ -212,13 +214,9 @@ void app_driver_client_invoke_command_callback(client::peer_device_t *peer_devic
     {
         strcpy(command_data_str, "{}");
     }
-    // else if (req_handle->command_path.mClusterId == LevelControl::Id)
-    // {
-    //     strcpy(command_data_str, "{\"0:U8\": 128, \"1:U16\": 0, \"2:U8\": 0, \"3:U8\": 0}");
-    // }
     else if (req_handle->command_path.mClusterId == LevelControl::Id)
     {
-        strcpy(command_data_str, "{\"0:U8\": 0, \"1:U8\": 12, \"2:U16\": 0, \"3:U8\": 0, \"4:U8\": 0}");
+        sprintf(command_data_str, "{\"0:U8\": %d, \"1:U8\": 3, \"2:U16\": 0, \"3:U8\": 0, \"4:U8\": 0}", (int)current_step_direction);
     }
     else if (req_handle->command_path.mClusterId == Identify::Id)
     {
@@ -296,8 +294,26 @@ void app_driver_client_group_invoke_command_callback(uint8_t fabric_index, clien
     client::interaction::invoke::send_group_request(fabric_index, req_handle->command_path, command_data_str);
 }
 
-static void app_driver_button_toggle_cb(void *arg, void *data)
+static void swap_dimmer_direction() 
 {
+    // Swap the direction of the Step Command
+    //
+    if(current_step_direction == LevelControl::StepModeEnum::kUp) 
+    {
+        current_step_direction = LevelControl::StepModeEnum::kDown;
+    }
+    else 
+    {
+        current_step_direction = LevelControl::StepModeEnum::kUp;
+    }
+
+    ESP_LOGI(TAG, "Dimmer Direction is now: %d", (int)current_step_direction);
+}
+
+static void app_driver_button_press_up_cb(void *arg, void *data)
+{
+    ESP_LOGI(TAG, "Button Press Up");
+
     if (iot_button_get_ticks_time((button_handle_t)arg) < 1000)
     {
         ESP_LOGI(TAG, "Single Click");
@@ -313,7 +329,7 @@ static void app_driver_button_toggle_cb(void *arg, void *data)
     else
     {
         ESP_LOGI(TAG, "Long Press");
-        // TOOD Reverse the current dimming direction
+        swap_dimmer_direction();
     }
 }
 
@@ -345,14 +361,19 @@ static void app_driver_button_dimming_cb(void *arg, void *data)
     lock::chip_stack_unlock();
 }
 
+static void app_driver_button_long_press_up_cb(void *arg, void *data)
+{
+    ESP_LOGI(TAG, "Long Press Up");
+    swap_dimmer_direction();
+}
+
+static void app_driver_button_long_press_start_cb(void *arg, void *data)
+{
+    ESP_LOGI(TAG, "Long Press Started");
+}
+
 app_driver_handle_t app_driver_switch_init()
 {
-    /* Initialize button */
-
-    // button_event_args_t args = {
-    //     .long_press.press_time = 2000,
-    // };
-
     button_config_t config;
     memset(&config, 0, sizeof(button_config_t));
 
@@ -360,13 +381,17 @@ app_driver_handle_t app_driver_switch_init()
     config.gpio_button_config.gpio_num = GPIO_NUM_9;
     config.gpio_button_config.active_level = 0;
 
+    // To enable powersafe, a setting must be set first via menuconfig
+    // config.gpio_button_config.enable_power_save = true;
+
     button_handle_t handle = iot_button_create(&config);
 
-    ESP_ERROR_CHECK(iot_button_register_cb(handle, BUTTON_PRESS_UP, app_driver_button_toggle_cb, NULL));
+    ESP_ERROR_CHECK(iot_button_register_cb(handle, BUTTON_PRESS_UP, app_driver_button_press_up_cb, NULL));
+    ESP_ERROR_CHECK(iot_button_register_cb(handle, BUTTON_LONG_PRESS_START, app_driver_button_long_press_start_cb, NULL));
     ESP_ERROR_CHECK(iot_button_register_cb(handle, BUTTON_LONG_PRESS_HOLD, app_driver_button_dimming_cb, NULL));
 
-    // To enable powersafe, a setting must be set via menuconfig
-    //config.gpio_button_config.enable_power_save = true;
+    // This event never seems to get raised.
+    ESP_ERROR_CHECK(iot_button_register_cb(handle, BUTTON_LONG_PRESS_UP, app_driver_button_long_press_up_cb, NULL));
 
     /* Other initializations */
 #if CONFIG_ENABLE_CHIP_SHELL

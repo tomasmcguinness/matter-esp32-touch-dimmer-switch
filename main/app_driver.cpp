@@ -62,7 +62,8 @@ void app_driver_client_invoke_command_callback(client::peer_device_t *peer_devic
     }
     else if (req_handle->command_path.mClusterId == LevelControl::Id)
     {
-        sprintf(command_data_str, "{\"0:U8\": %d, \"1:U8\": 3, \"2:U16\": 0, \"3:U8\": 0, \"4:U8\": 0}", (int)current_step_direction);
+        LevelControl::Commands::Step::Type *stepCommand = (LevelControl::Commands::Step::Type *)req_handle->request_data;
+        sprintf(command_data_str, "{\"0:U8\": %d, \"1:U8\": %d, \"2:U16\": 0, \"3:U8\": 0, \"4:U8\": 0}", (uint8_t)stepCommand->stepMode, stepCommand->stepSize);
     }
     else if (req_handle->command_path.mClusterId == Identify::Id)
     {
@@ -190,7 +191,7 @@ static void app_driver_button_dimming_cb(void *arg, void *data)
     ESP_LOGI(TAG, "Long Press Hold Time: %ld", hold_time);
 
     LevelControl::Commands::Step::Type stepCommand;
-    stepCommand.stepMode = LevelControl::StepModeEnum::kUp;
+    stepCommand.stepMode = current_step_direction;
     stepCommand.stepSize = 3;
     stepCommand.transitionTime.SetNonNull(0);
     stepCommand.optionsMask = static_cast<chip::BitMask<chip::app::Clusters::LevelControl::LevelControlOptions>>(0U);
@@ -224,7 +225,7 @@ app_driver_handle_t app_driver_switch_init()
     memset(&config, 0, sizeof(button_config_t));
 
     config.type = BUTTON_TYPE_GPIO;
-    config.gpio_button_config.gpio_num = GPIO_NUM_9;
+    config.gpio_button_config.gpio_num = GPIO_NUM_2;
     config.gpio_button_config.active_level = 0;
 
     // To enable powersafe, a setting must be set first via menuconfig

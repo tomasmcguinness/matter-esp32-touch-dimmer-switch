@@ -74,8 +74,7 @@ void app_driver_client_invoke_command_callback(client::peer_device_t *peer_devic
                 ESP_LOGE(TAG, "Number of parameters error");
                 return;
             }
-            sprintf(command_data_str, "{\"0:U16\": %ld}",
-                    strtoul((const char *)(req_handle->request_data) + 1, NULL, 16));
+            sprintf(command_data_str, "{\"0:U16\": %ld}", strtoul((const char *)(req_handle->request_data) + 1, NULL, 16));
         }
         else
         {
@@ -226,7 +225,7 @@ app_driver_handle_t app_driver_switch_init()
 
     config.type = BUTTON_TYPE_GPIO;
     config.gpio_button_config.gpio_num = GPIO_NUM_2;
-    config.gpio_button_config.active_level = 0;
+    config.gpio_button_config.active_level = 1;
 
     // To enable powersafe, a setting must be set first via menuconfig
     // config.gpio_button_config.enable_power_save = true;
